@@ -30,15 +30,39 @@ jobs:
           channel: stable
           cache: true
 
-      # 修复1：强制 Gradle Wrapper 使用正确官方 URL（8.14.0）
+      # 修复1：强制 Gradle Wrapper 使用官方 URL（8.14.0）
       - name: Force Gradle Wrapper to 8.14.0
         run: |
-          echo "distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.14-bin.zip" \
+          # 官方地址（稳定可用）
+          echo "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-bin.zip" \
             > phoneshell/android/gradle/wrapper/gradle-wrapper.properties
+          # 如果你仍想尝试腾讯镜像，可取消下面注释并注释上面一行
+          # echo "distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.14-bin.zip" \
+          #   > phoneshell/android/gradle/wrapper/gradle-wrapper.properties
           echo "=== Gradle wrapper fixed ==="
           cat phoneshell/android/gradle/wrapper/gradle-wrapper.properties
 
-      # 修复2：禁用 AGP 9+ 新 DSL，兼容旧版 build.gradle.kts
+      # 修复2：升级 AGP 版本到 8.11.1（Flutter 3.47.2 最低要求）
+      - name: Upgrade AGP to 8.11.1
+        run: |
+          cd phoneshell/android
+          # 情况A：新版 settings.gradle 里用 plugins { id("com.android.application") version "x.y.z" }
+          if grep -q 'com.android.application' settings.gradle 2>/dev/null; then
+            sed -i -E 's/(id\(?"com\.android\.application"\)?\s*version\s*"?)[0-9]+\.[0-9]+\.[0-9]+("?)/\18.11.1\2/' settings.gradle
+            echo ">>> Patched AGP version in settings.gradle"
+          fi
+          # 情况B：老版 build.gradle 里 classpath 'com.android.tools.build:gradle:x.y.z'
+          if [ -f build.gradle ] && grep -q 'com.android.tools.build:gradle' build.gradle; then
+            sed -i -E "s/com\.android\.tools\.build:gradle:[0-9]+\.[0-9]+\.[0-9]+/com.android.tools.build:gradle:8.11.1/" build.gradle
+            echo ">>> Patched AGP version in build.gradle"
+          fi
+          cd ../..
+          echo "=== settings.gradle (if exists) ==="
+          cat phoneshell/android/settings.gradle 2>/dev/null || echo "(no settings.gradle)"
+          echo "=== build.gradle (if exists) ==="
+          cat phoneshell/android/build.gradle 2>/dev/null || echo "(no build.gradle)"
+
+      # 修复3：禁用 AGP 9+ 新 DSL，兼容旧版 build.gradle.kts
       - name: Disable new DSL for AGP 9+
         run: |
           if [ ! -f phoneshell/android/gradle.properties ]; then
@@ -53,9 +77,10 @@ jobs:
         working-directory: phoneshell
         run: flutter pub get
 
+      # 修复4：构建时跳过 Flutter 的依赖校验（绕过 Gradle 版本警告）
       - name: Build release APK
         working-directory: phoneshell
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       # 重命名 APK 以便识别版本
       - name: Rename APK
