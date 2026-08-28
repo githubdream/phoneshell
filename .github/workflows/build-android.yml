@@ -1,16 +1,15 @@
-name: Build PhoneShell Android APK
+name: Build Android APK
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  # 可按需触发，例如手动或 tag 推送
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,68 +19,46 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
           java-version: '17'
+          distribution: 'temurin'
 
-      # 使用 Flutter 3.47.2（内置 Dart 3.13，满足 ^3.9.2 要求）
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      # ===== 关键修复：替换 Gradle 下载地址为国内镜像 =====
+      - name: Use Gradle mirror (Tencent Cloud)
+        run: |
+          # 如果你的 gradle-wrapper.properties 不在 android/ 目录下，请调整路径
+          sed -i 's#https://services.gradle.org/distributions#https://mirrors.cloud.tencent.com/gradle#g' android/gradle/wrapper/gradle-wrapper.properties
+
+      # ===== 缓存 Gradle 发行包（避免重复下载） =====
+      - name: Cache Gradle distribution
+        uses: actions/cache@v3
         with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
+          path: ~/.gradle/wrapper/dists
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
-      # 修复1：强制升级 Gradle Wrapper 到 8.14.0（Flutter 3.47 最低要求）
-      - name: Force Gradle Wrapper to 8.14.0
+      # ===== 缓存 Gradle 和 Android 构建缓存 =====
+      - name: Cache Gradle and build cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            android/build
+            android/app/build
+          key: ${{ runner.os }}-gradle-cache-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-cache-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build Release APK
         run: |
-          echo "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-bin.zip" \
-            > phoneshell/android/gradle/wrapper/gradle-wrapper.properties
-          echo "=== Gradle wrapper updated ==="
-          cat phoneshell/android/gradle/wrapper/gradle-wrapper.properties
+          cd android
+          ./gradlew assembleRelease --no-daemon
 
-      # 修复2：禁用 AGP 9+ 新 DSL，兼容旧版 build.gradle.kts 语法
-      - name: Disable new DSL for AGP 9+
-        run: |
-          if [ ! -f phoneshell/android/gradle.properties ]; then
-            touch phoneshell/android/gradle.properties
-          fi
-          echo "" >> phoneshell/android/gradle.properties
-          echo "android.useNewDsl=false" >> phoneshell/android/gradle.properties
-          echo "=== gradle.properties updated ==="
-          cat phoneshell/android/gradle.properties
-
-      - name: Flutter pub get
-        working-directory: phoneshell
-        run: flutter pub get
-
-      # 修复3：若仍然遇到 Gradle 版本检查失败，可取消下面注释的行（备选方案）
-      # 但通常前两步已足够，保留注释作为应急开关
-      - name: Build release APK
-        working-directory: phoneshell
-        run: flutter build apk --release
-        # 如果需要跳过 Gradle 版本校验，可以追加 --android-skip-build-dependency-validation
-        # run: flutter build apk --release --android-skip-build-dependency-validation
-
-      # 重命名 APK 以便识别版本
-      - name: Rename APK
-        run: |
-          mv phoneshell/build/app/outputs/flutter-apk/app-release.apk \
-             phoneshell/build/app/outputs/flutter-apk/phoneshell-android-${{ github.ref_name }}.apk
-
-      # 上传到 Actions Artifacts（方便手动下载）
-      - name: Upload artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: phoneshell-android-apk
-          path: phoneshell/build/app/outputs/flutter-apk/phoneshell-android-${{ github.ref_name }}.apk
-          retention-days: 7
-
-      # 如果是通过 tag 触发，自动发布到 GitHub Release
-      - name: Upload to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "PhoneShell Android ${{ github.ref_name }}"
-          files: phoneshell/build/app/outputs/flutter-apk/phoneshell-android-${{ github.ref_name }}.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: app-release
+          path: android/app/build/outputs/apk/release/*.apk
