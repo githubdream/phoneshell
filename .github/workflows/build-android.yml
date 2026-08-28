@@ -34,7 +34,7 @@ jobs:
       - name: Force Gradle Wrapper to 8.14.0
         run: |
           # 官方地址（稳定可用）
-          echo "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-bin.zip" \
+          echo "distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.14-bin.zip" \
             > phoneshell/android/gradle/wrapper/gradle-wrapper.properties
           # 如果你仍想尝试腾讯镜像，可取消下面注释并注释上面一行
           # echo "distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.14-bin.zip" \
