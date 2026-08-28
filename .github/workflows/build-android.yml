@@ -1,64 +1,58 @@
-name: Build Android APK
+name: Android CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main, master ]
-  # 可按需触发，例如手动或 tag 推送
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # 1. 检出代码
+      - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. 设置 JDK 17（根据项目需要调整）
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
 
-      # ===== 关键修复：替换 Gradle 下载地址为国内镜像 =====
-      - name: Use Gradle mirror (Tencent Cloud)
+      # 3. 修复 gradle-wrapper.properties 中的下载镜像（使用完整路径）
+      - name: Replace Gradle distribution URL with Tencent mirror
         run: |
-          # 如果你的 gradle-wrapper.properties 不在 android/ 目录下，请调整路径
-          sed -i 's#https://services.gradle.org/distributions#https://mirrors.cloud.tencent.com/gradle#g' android/gradle/wrapper/gradle-wrapper.properties
+          # 明确指定完整路径（注意：工作目录是仓库根目录）
+          PROP_FILE="phoneshell/android/gradle/wrapper/gradle-wrapper.properties"
+          if [ -f "$PROP_FILE" ]; then
+            sed -i 's#https://services.gradle.org/distributions#https://mirrors.cloud.tencent.com/gradle#g' "$PROP_FILE"
+            echo "✅ gradle-wrapper.properties updated."
+          else
+            echo "❌ File not found: $PROP_FILE"
+            exit 1
+          fi
 
-      # ===== 缓存 Gradle 发行包（避免重复下载） =====
-      - name: Cache Gradle distribution
-        uses: actions/cache@v3
-        with:
-          path: ~/.gradle/wrapper/dists
-          key: ${{ runner.os }}-gradle-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      # （可选）调试：查看修改后的内容
+      - name: Show updated properties (optional)
+        run: cat phoneshell/android/gradle/wrapper/gradle-wrapper.properties
 
-      # ===== 缓存 Gradle 和 Android 构建缓存 =====
-      - name: Cache Gradle and build cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            android/build
-            android/app/build
-          key: ${{ runner.os }}-gradle-cache-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-cache-
-
+      # 4. 赋予 Gradle Wrapper 执行权限（若使用 ./gradlew）
       - name: Grant execute permission for gradlew
-        run: chmod +x android/gradlew
+        run: chmod +x phoneshell/gradlew  # 假设 gradlew 在 phoneshell/ 下，根据实际调整
 
-      - name: Build Release APK
+      # 5. 执行 Android 构建（例如 assembleDebug）
+      - name: Build with Gradle
         run: |
-          cd android
-          ./gradlew assembleRelease --no-daemon
+          cd phoneshell
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK artifact
+      # 6. （可选）上传构建产物
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: android/app/build/outputs/apk/release/*.apk
+          name: app-debug
+          path: phoneshell/app/build/outputs/apk/debug/*.apk
