@@ -1,58 +1,82 @@
-name: Android CI
+name: Build PhoneShell Android APK
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出代码
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置 JDK 17（根据项目需要调整）
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-          cache: 'gradle'
 
-      # 3. 修复 gradle-wrapper.properties 中的下载镜像（使用完整路径）
-      - name: Replace Gradle distribution URL with Tencent mirror
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      # 修复1：强制 Gradle Wrapper 使用正确官方 URL（8.14.0）
+      - name: Force Gradle Wrapper to 8.14.0
         run: |
-          # 明确指定完整路径（注意：工作目录是仓库根目录）
-          PROP_FILE="phoneshell/android/gradle/wrapper/gradle-wrapper.properties"
-          if [ -f "$PROP_FILE" ]; then
-            sed -i 's#https://services.gradle.org/distributions#https://mirrors.cloud.tencent.com/gradle#g' "$PROP_FILE"
-            echo "✅ gradle-wrapper.properties updated."
-          else
-            echo "❌ File not found: $PROP_FILE"
-            exit 1
+          echo "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-bin.zip" \
+            > phoneshell/android/gradle/wrapper/gradle-wrapper.properties
+          echo "=== Gradle wrapper fixed ==="
+          cat phoneshell/android/gradle/wrapper/gradle-wrapper.properties
+
+      # 修复2：禁用 AGP 9+ 新 DSL，兼容旧版 build.gradle.kts
+      - name: Disable new DSL for AGP 9+
+        run: |
+          if [ ! -f phoneshell/android/gradle.properties ]; then
+            touch phoneshell/android/gradle.properties
           fi
+          echo "" >> phoneshell/android/gradle.properties
+          echo "android.useNewDsl=false" >> phoneshell/android/gradle.properties
+          echo "=== gradle.properties updated ==="
+          cat phoneshell/android/gradle.properties
 
-      # （可选）调试：查看修改后的内容
-      - name: Show updated properties (optional)
-        run: cat phoneshell/android/gradle/wrapper/gradle-wrapper.properties
+      - name: Flutter pub get
+        working-directory: phoneshell
+        run: flutter pub get
 
-      # 4. 赋予 Gradle Wrapper 执行权限（若使用 ./gradlew）
-      - name: Grant execute permission for gradlew
-        run: chmod +x phoneshell/gradlew  # 假设 gradlew 在 phoneshell/ 下，根据实际调整
+      - name: Build release APK
+        working-directory: phoneshell
+        run: flutter build apk --release
 
-      # 5. 执行 Android 构建（例如 assembleDebug）
-      - name: Build with Gradle
+      # 重命名 APK 以便识别版本
+      - name: Rename APK
         run: |
-          cd phoneshell
-          ./gradlew assembleDebug --no-daemon
+          mv phoneshell/build/app/outputs/flutter-apk/app-release.apk \
+             phoneshell/build/app/outputs/flutter-apk/phoneshell-android-${{ github.ref_name }}.apk
 
-      # 6. （可选）上传构建产物
-      - name: Upload APK
+      # 上传到 Actions Artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: phoneshell/app/build/outputs/apk/debug/*.apk
+          name: phoneshell-android-apk
+          path: phoneshell/build/app/outputs/flutter-apk/phoneshell-android-${{ github.ref_name }}.apk
+          retention-days: 7
+
+      # 如果是 tag 触发，自动发布到 GitHub Release
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PhoneShell Android ${{ github.ref_name }}"
+          files: phoneshell/build/app/outputs/flutter-apk/phoneshell-android-${{ github.ref_name }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
