@@ -28,7 +28,11 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-
+      - name: Patch Gradle wrapper version to 8.14.0
+        run: |
+          sed -i 's|gradle-8.12.0-bin.zip|gradle-8.14.0-bin.zip|g' \
+            phoneshell/android/gradle/wrapper/gradle-wrapper.properties
+            
       - name: Flutter pub get
         working-directory: phoneshell
         run: flutter pub get
