@@ -33,7 +33,7 @@ jobs:
       # 修复1：强制 Gradle Wrapper 使用正确官方 URL（8.14.0）
       - name: Force Gradle Wrapper to 8.14.0
         run: |
-          echo "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.0-bin.zip" \
+          echo "distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.14-bin.zip" \
             > phoneshell/android/gradle/wrapper/gradle-wrapper.properties
           echo "=== Gradle wrapper fixed ==="
           cat phoneshell/android/gradle/wrapper/gradle-wrapper.properties
